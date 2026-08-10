@@ -1,0 +1,68 @@
+name: ConsoleStatus PowerShell Module
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'dev'
+      - 'dev-*'
+  pull_request:
+    branches:
+      - 'main'
+      - 'dev'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: validation
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        # The manifest claims Desktop and Core, so both are tested.
+        shell: [pwsh, powershell]
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v7
+        with:
+          clean: true
+
+      - name: Install requirements
+        shell: ${{ matrix.shell }}
+        run: .\ci\Install.ps1
+
+      - name: Perform tests
+        shell: ${{ matrix.shell }}
+        run: .\ci\Tests.ps1
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.shell }}
+          path: TestResults.xml
+          if-no-files-found: warn
+
+  publish:
+    name: publish
+    needs: test
+    # Only direct pushes to main or dev publish. Pull requests and feature branches validate only,
+    # and ci\Build.ps1 skips any branch that does not map to a gallery.
+    if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'dev')
+    runs-on: windows-2022
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v7
+        with:
+          clean: true
+
+      - name: Install requirements
+        shell: pwsh
+        run: .\ci\Install.ps1
+
+      - name: Publish module
+        shell: pwsh
+        env:
+          NugetApiKey: ${{ secrets.POWERSHELLGALLERYAPIKEY }}
+          NugetApiKeyDev: ${{ secrets.POWERSHELLGALLERYAPIKEYDEV }}
+        run: .\ci\Build.ps1
