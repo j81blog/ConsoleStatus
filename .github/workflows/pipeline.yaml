@@ -19,8 +19,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The manifest claims Desktop and Core, so both are tested.
-        shell: [pwsh, powershell]
+        # The manifest claims Desktop and Core, so both are tested. The matrix context is not
+        # allowed in a step's shell key, so the edition is launched as a child process instead.
+        edition: [pwsh, powershell]
     steps:
       - name: Check out repository code
         uses: actions/checkout@v7
@@ -28,18 +29,18 @@ jobs:
           clean: true
 
       - name: Install requirements
-        shell: ${{ matrix.shell }}
-        run: .\ci\Install.ps1
+        shell: pwsh
+        run: ${{ matrix.edition }} -NoProfile -ExecutionPolicy Bypass -File .\ci\Install.ps1
 
       - name: Perform tests
-        shell: ${{ matrix.shell }}
-        run: .\ci\Tests.ps1
+        shell: pwsh
+        run: ${{ matrix.edition }} -NoProfile -ExecutionPolicy Bypass -File .\ci\Tests.ps1
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-results-${{ matrix.shell }}
+          name: test-results-${{ matrix.edition }}
           path: TestResults.xml
           if-no-files-found: warn
 
