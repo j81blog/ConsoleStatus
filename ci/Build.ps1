@@ -37,7 +37,7 @@ $branch = if ([string]::IsNullOrEmpty(${env:GITHUB_REF_NAME})) { 'local' } else 
 
 $psTestGalleryUri = 'https://www.poshtestgallery.com/api/v2/'
 
-# Branch to gallery. Add entries here to publish from another branch.
+# Branch to gallery.
 $galleries = @{
     main = @{
         Repository  = 'PSGallery'

@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The manifest claims Desktop and Core, so both are tested. The matrix context is not
+        # The manifest claims Desktop and Core, so the tests run on both. The matrix context is not
         # allowed in a step's shell key, so the edition is launched as a child process instead.
         edition: [pwsh, powershell]
     steps:

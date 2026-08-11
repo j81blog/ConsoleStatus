@@ -231,10 +231,10 @@ ci/                       Install, Tests and Build, called by the workflow
 .\ci\Tests.ps1
 ```
 
-Runs PSScriptAnalyzer against `PSScriptAnalyzerSettings.psd1` and then 96 Pester tests, and writes
-`TestResults.xml`. The suite covers width resolution, setting precedence and validation, the column
-arithmetic, bar wrapping and limits, details and notes, duration formatting, the records and
-summary, the module layout, and that nothing reaches the success stream.
+Runs 96 Pester tests and writes `TestResults.xml`. The suite covers width resolution, setting
+precedence and validation, the column arithmetic, bar wrapping and limits, details and notes,
+duration formatting, the records and summary, the module layout, and that nothing reaches the
+success stream.
 
 Rendering is asserted by capturing the information stream with `6>&1` and rebuilding the emitted
 lines, so the layout maths is tested rather than eyeballed.

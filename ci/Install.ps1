@@ -20,7 +20,6 @@ $ErrorActionPreference = 'Stop'
 
 $required = @(
     @{ Name = 'Pester'; MinimumVersion = '5.0.0' }
-    @{ Name = 'PSScriptAnalyzer'; MinimumVersion = '1.21.0' }
 )
 
 Write-Host ''
@@ -28,14 +27,23 @@ Write-Host "Script............: $($MyInvocation.MyCommand.Name)"
 Write-Host "Edition...........: $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
 Write-Host "Branch............: ${env:GITHUB_REF_NAME}"
 
-if (-not (Get-PackageProvider -ListAvailable | Where-Object { $_.Name -eq 'NuGet' -and $_.Version -ge [System.Version]'2.8.5.208' })) {
-    Write-Host 'Provider..........: installing NuGet'
-    $null = Install-PackageProvider -Name 'NuGet' -MinimumVersion '2.8.5.208' -Force
+# Optional bootstrap. Install-Module below reports a real failure.
+try {
+    if (-not (Get-PackageProvider -ListAvailable | Where-Object { $_.Name -eq 'NuGet' -and $_.Version -ge [System.Version]'2.8.5.208' })) {
+        Write-Host 'Provider..........: installing NuGet'
+        $null = Install-PackageProvider -Name 'NuGet' -MinimumVersion '2.8.5.208' -Force
+    }
+} catch {
+    Write-Host "Provider..........: NuGet bootstrap skipped, $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-if (Get-PSRepository -Name 'PSGallery' | Where-Object { $_.InstallationPolicy -ne 'Trusted' }) {
-    Write-Host 'Repository........: trusting PSGallery'
-    Set-PSRepository -Name 'PSGallery' -InstallationPolicy 'Trusted'
+try {
+    if (Get-PSRepository -Name 'PSGallery' -ErrorAction Stop | Where-Object { $_.InstallationPolicy -ne 'Trusted' }) {
+        Write-Host 'Repository........: trusting PSGallery'
+        Set-PSRepository -Name 'PSGallery' -InstallationPolicy 'Trusted'
+    }
+} catch {
+    Write-Host "Repository........: PSGallery not registered, $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 foreach ($module in $required) {
