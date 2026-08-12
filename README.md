@@ -19,6 +19,7 @@ colored result, without polluting the pipeline.
   Summary
   --------------------------------------------------------------------------------------------------
   Steps completed         6               ............................................ 1.2s [  OK  ]
+  Total time                              ............................................ 2.7s [  OK  ]
   Skipped                 1               ................................................. [ SKIP ]
   Failed                  1               ................................................. [ FAIL ]
     > Contact license server (srv-does-not-exist)
@@ -51,6 +52,8 @@ Import-Module .\ConsoleStatus\ConsoleStatus.psd1
 
 Set-ConsoleStatusStyle
 
+Write-ConsoleTitle -Title 'Application deployment' -Subtitle $env:COMPUTERNAME -ClearScreen
+
 Write-ConsoleSection -Title 'Environment checks'
 
 Write-ConsoleItem -Label 'Execution policy' -Value (Get-ExecutionPolicy).ToString()
@@ -78,6 +81,16 @@ $files = Invoke-ConsoleStep -Label 'Enumerate' -Value $path -Action { Get-ChildI
 
 `Invoke-ConsoleStep` rethrows by default, so a plain `try`/`catch` gives you both the red status and
 control of the flow. Use `-ContinueOnError` when the script does not need to branch on it.
+
+The action runs in a child scope, so assignments inside it do not reach the caller. Reach for the
+manual API when the work updates the caller's variables; the wrapper is for work whose result comes
+back as output.
+
+Closing an item is idempotent. A `catch` or a `finally` can call `Write-ConsoleResult` to close
+whatever was left open without tracking how far the work got, and a second close writes nothing and
+records nothing. A tick with no item open is ignored for the same reason. `Get-ConsoleStatusState`
+reports whether an item is open and how far it got, for a wrapper that wants to report on it rather
+than guard against it.
 
 ## Progress
 
@@ -144,7 +157,7 @@ $ConsoleStatusPreference = @{
 | `Unicode` | `$false` | Block and box drawing glyphs, sets UTF-8 output |
 | `NoColor` | `$false` | Also honors `$env:NO_COLOR` |
 | `ShowDuration` | `$false` | Per step with `-ShowDuration`, whatever this says |
-| `TickChar` / `FillChar` / `RuleChar` / `MoreChar` | `*` `.` `-` `>` | Single character each |
+| `TickChar` / `FillChar` / `RuleChar` / `TitleChar` / `MoreChar` | `*` `.` `-` `=` `>` | Single character each |
 | `BarContinuation` | `Open` | `Open` leaves a continued line bare, `Blank` ends it with an empty block |
 | `MaxBarLines` | `3` | Lines a wrapping bar may use, `0` for no limit, `1` to stay on one line |
 | `LogAction` | `$null` | Scriptblock invoked with one record per completed item |
@@ -155,6 +168,23 @@ the label. `Get-ConsoleStatusStyle` reports what was actually fitted.
 Width is taken from `$Host.UI.RawUI.WindowSize`, falling back to the buffer width and then to 80.
 `$env:CONSOLESTATUS_WIDTH` overrides it for scheduled tasks and build agents where nothing is
 detectable.
+
+## Timing
+
+Two numbers, both on `Get-ConsoleStatusSummary` and both printed by `Write-ConsoleSummary`:
+
+```powershell
+$summary = Get-ConsoleStatusSummary
+$summary.DurationMs   # time spent inside the steps, added up
+$summary.ElapsedMs    # wall clock for the whole run, gaps between the steps included
+```
+
+The run clock starts when the module is imported and restarts on every `Reset-ConsoleStatusLog`.
+When the import happens long before the work does, anchor it on the banner instead:
+
+```powershell
+Write-ConsoleTitle -Title 'Application deployment' -StartTimer
+```
 
 ## Records and logging
 
@@ -189,6 +219,8 @@ down a deployment.
 |---|---|
 | `Set-ConsoleStatusStyle` | Apply defaults, preferences and parameters, then fit the columns |
 | `Get-ConsoleStatusStyle` | The configuration actually in effect, including fitted widths |
+| `Get-ConsoleStatusState` | Where the renderer is: the open item, its section, and its progress |
+| `Write-ConsoleTitle` | Opening banner between two rules, optionally clearing the screen first |
 | `Write-ConsoleSection` | Section header with a rule |
 | `Write-ConsoleItem` | Start an item line and its timer |
 | `Write-ConsoleTick` | Advance the progress bar |
@@ -197,7 +229,7 @@ down a deployment.
 | `Write-ConsoleResult` | Close the line with a status, and record it |
 | `Invoke-ConsoleStep` | Run a scriptblock as one item, passing its output through |
 | `Write-ConsoleSummary` | Closing totals, with the failures listed |
-| `Get-ConsoleStatusSummary` | Counts per status plus total elapsed time |
+| `Get-ConsoleStatusSummary` | Counts per status, time spent in the steps, and total running time |
 | `Get-ConsoleStatusLog` | One structured record per completed item |
 | `Reset-ConsoleStatusLog` | Clear the records and the counters |
 
@@ -231,10 +263,14 @@ ci/                       Install, Tests and Build, called by the workflow
 .\ci\Tests.ps1
 ```
 
-Runs 96 Pester tests and writes `TestResults.xml`. The suite covers width resolution, setting
-precedence and validation, the column arithmetic, bar wrapping and limits, details and notes,
-duration formatting, the records and summary, the module layout, and that nothing reaches the
-success stream.
+Runs 128 Pester tests and writes `TestResults.xml`. The suite covers width resolution, setting
+precedence and validation, the column arithmetic, the title banner, the item lifecycle, bar
+wrapping and limits, details and notes, duration and run timing, the records and summary, the
+module layout, comment based help, and that nothing reaches the success stream.
+
+It also guards the signing: every shipped file must carry a UTF-8 BOM, CRLF endings, ASCII only
+code and a valid, timestamped signature block. That catches a stray `LF` from a checkout or an
+editor before it reaches the gallery as a broken signature.
 
 Rendering is asserted by capturing the information stream with `6>&1` and rebuilding the emitted
 lines, so the layout maths is tested rather than eyeballed.

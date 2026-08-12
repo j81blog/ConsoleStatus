@@ -4,7 +4,8 @@
         Example of consuming the ConsoleStatus module from a real script.
 
     .DESCRIPTION
-        Part 1 is a realistic run and shows the patterns a script needs:
+        Part 1 is a realistic run, opened with a title banner, and shows the patterns a script
+        needs:
           1. Manual item where the caller decides the status (OK, WARN, FAIL, SKIP).
           2. Invoke-ConsoleStep, where the action output lands in a variable and only the
              decoration goes to the console.
@@ -113,6 +114,11 @@ Reset-ConsoleStatusLog
 Remove-Item -Path $logPath -ErrorAction SilentlyContinue
 
 #region Part 1: a realistic run
+
+# The banner that opens the run. -StartTimer anchors the total running time here instead of on the
+# module import, which matters when the import happens long before the work does. -ClearScreen is
+# left off so the tour below stays readable, a real script would usually start with it.
+Write-ConsoleTitle -Title 'ConsoleStatus example run' -Subtitle "$env:COMPUTERNAME, $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -StartTimer
 
 Write-ConsoleSection -Title 'Environment checks'
 
