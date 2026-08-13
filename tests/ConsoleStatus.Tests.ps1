@@ -166,6 +166,27 @@ Describe 'Module layout' {
         (@($manifest.ExportedFunctions.Keys) | Sort-Object) -join ',' | Should -Be ($exported -join ',')
     }
 
+    It 'gives every public function a synopsis and a description' {
+        # The help sits on the function, not on the file, so a file level GetHelpContent is empty
+        # here and the function ast is what has to be asked.
+        $files = @(Get-ChildItem -Path (Join-Path -Path $script:moduleRoot -ChildPath 'public') -Filter '*.ps1')
+        $files.Count | Should -BeGreaterThan 0
+
+        $offenders = foreach ($file in $files) {
+            $help = (Get-FunctionAst -Path $file.FullName).Functions[0].GetHelpContent()
+
+            if ($null -eq $help) {
+                "$($file.BaseName): no comment based help"
+            } elseif ([string]::IsNullOrWhiteSpace($help.Synopsis)) {
+                "$($file.BaseName): no synopsis"
+            } elseif ([string]::IsNullOrWhiteSpace($help.Description)) {
+                "$($file.BaseName): no description"
+            }
+        }
+
+        @($offenders) -join '; ' | Should -BeNullOrEmpty
+    }
+
     It 'defines exactly one function per file in <Folder>' -ForEach @(
         @{ Folder = 'private' }
         @{ Folder = 'public' }
@@ -180,6 +201,126 @@ Describe 'Module layout' {
             $parsed.Functions.Count | Should -Be 1 -Because "$Folder\$($file.Name) holds: $names"
             $parsed.Functions[0].Name | Should -Be $file.BaseName
         }
+    }
+}
+
+BeforeDiscovery {
+    # Windows PowerShell has no $IsWindows, so a guard on that alone would silently skip the
+    # signature tests on the Desktop leg of the matrix, which is the leg that can actually run them.
+    $onWindows = $PSVersionTable.PSEdition -eq 'Desktop' -or $IsWindows
+}
+
+Describe 'Signed file integrity' {
+
+    BeforeAll {
+        $script:signedFiles = @(Get-ChildItem -Path (Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath '..\ConsoleStatus')) -Recurse -Include '*.ps1', '*.psm1', '*.psd1' |
+                ForEach-Object {
+                    [PSCustomObject]@{
+                        Name  = $_.Name
+                        Path  = $_.FullName
+                        Bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+                        Text  = [System.IO.File]::ReadAllText($_.FullName)
+                    }
+                })
+    }
+
+    It 'starts every file with a UTF-8 BOM' {
+        # Without it PowerShell guesses the encoding, and a different guess than the signer made
+        # produces different bytes.
+        $script:signedFiles.Count | Should -BeGreaterThan 0
+
+        $offenders = foreach ($file in $script:signedFiles) {
+            if ($file.Bytes.Length -lt 3 -or $file.Bytes[0] -ne 0xEF -or $file.Bytes[1] -ne 0xBB -or $file.Bytes[2] -ne 0xBF) {
+                $file.Name
+            }
+        }
+
+        @($offenders) -join ', ' | Should -BeNullOrEmpty
+    }
+
+    It 'uses CRLF for every line ending' {
+        # Every 0x0A not preceded by 0x0D, which is what autocrlf leaves behind. Fails if
+        # .gitattributes stops marking these files -text.
+        $offenders = foreach ($file in $script:signedFiles) {
+            $bare = 0
+
+            for ($i = 0; $i -lt $file.Bytes.Length; $i++) {
+                if ($file.Bytes[$i] -eq 0x0A -and ($i -eq 0 -or $file.Bytes[$i - 1] -ne 0x0D)) {
+                    $bare++
+                }
+            }
+
+            if ($bare -gt 0) {
+                "$($file.Name): $bare bare LF"
+            }
+        }
+
+        @($offenders) -join '; ' | Should -BeNullOrEmpty -Because 'a bare LF anywhere invalidates the signature'
+    }
+
+    It 'keeps the code ASCII only' {
+        # A multi byte character hashes differently the moment a tool rewrites the file without the
+        # BOM, which is why the Unicode glyphs are written as [char]0x2550 instead of pasted in.
+        $offenders = foreach ($file in $script:signedFiles) {
+            $code = ($file.Text -split '# SIG # Begin signature block')[0]
+            $high = @($code.ToCharArray() | Where-Object { [int]$_ -gt 127 })
+
+            if ($high.Count -gt 0) {
+                "$($file.Name): $($high.Count) non ASCII"
+            }
+        }
+
+        @($offenders) -join '; ' | Should -BeNullOrEmpty
+    }
+
+    It 'wraps every file in a signature block' {
+        $offenders = foreach ($file in $script:signedFiles) {
+            if ($file.Text -notmatch '# SIG # Begin signature block' -or $file.Text -notmatch '# SIG # End signature block') {
+                $file.Name
+            }
+        }
+
+        @($offenders) -join ', ' | Should -BeNullOrEmpty
+    }
+
+    It 'has a signature block that decodes as base64' {
+        $offenders = foreach ($file in $script:signedFiles) {
+            $body = ($file.Text -split '# SIG # Begin signature block')[1] -split "`r?`n" |
+                Where-Object { $_ -match '^# ' -and $_ -notmatch '# SIG # (Begin|End)' } |
+                ForEach-Object { $_ -replace '^# ', '' }
+
+            try {
+                $null = [Convert]::FromBase64String(($body -join ''))
+            } catch {
+                "$($file.Name): $($_.Exception.Message)"
+            }
+        }
+
+        @($offenders) -join '; ' | Should -BeNullOrEmpty
+    }
+
+    It 'verifies as Valid' -Skip:(-not $onWindows) {
+        $offenders = foreach ($file in $script:signedFiles) {
+            $status = (Get-AuthenticodeSignature -FilePath $file.Path).Status
+
+            if ($status -ne 'Valid') {
+                "$($file.Name): $status"
+            }
+        }
+
+        @($offenders) -join '; ' | Should -BeNullOrEmpty
+    }
+
+    It 'carries a timestamp countersignature' -Skip:(-not $onWindows) {
+        # The signing certificate is short lived by design, so never assert its expiry. The
+        # timestamp is what keeps the signature valid past it.
+        $offenders = foreach ($file in $script:signedFiles) {
+            if ($null -eq (Get-AuthenticodeSignature -FilePath $file.Path).TimeStamperCertificate) {
+                $file.Name
+            }
+        }
+
+        @($offenders) -join ', ' | Should -BeNullOrEmpty
     }
 }
 
@@ -587,6 +728,233 @@ Describe 'Rendering' {
     }
 }
 
+Describe 'Title banner' {
+    BeforeEach { Reset-TestState }
+
+    It 'puts the title between two rules that reach the line width' {
+        $lines = @(Get-RenderedLines -Script { Write-ConsoleTitle -Title 'Application deployment' })
+
+        $lines.Count | Should -Be 4
+        $lines[0] | Should -Be ''
+        $lines[1] | Should -Be ('  ' + ('=' * 98))
+        $lines[2] | Should -Be '  Application deployment'
+        $lines[3] | Should -Be $lines[1]
+    }
+
+    It 'writes each subtitle line under the title' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleTitle -Title 'Application deployment' -Subtitle 'SRV-APP01', '2026-08-12 14:03'
+            })
+
+        $lines.Count | Should -Be 6
+        $lines[3] | Should -Be '  SRV-APP01'
+        $lines[4] | Should -Be '  2026-08-12 14:03'
+    }
+
+    It 'wraps a title that does not fit instead of overflowing' {
+        $title = (1..40 | ForEach-Object { 'word' }) -join ' '
+        $lines = @(Get-RenderedLines -Script { Write-ConsoleTitle -Title $title })
+
+        $lines.Count | Should -BeGreaterThan 4
+
+        foreach ($line in $lines) {
+            $line.Length | Should -BeLessOrEqual 100
+        }
+    }
+
+    It 'keeps runs of spaces in a subtitle so a caller can align it' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleTitle -Title 'Title' -Subtitle 'NetScaler : one', 'Provider  : two'
+            })
+
+        $lines[3] | Should -Be '  NetScaler : one'
+        $lines[4] | Should -Be '  Provider  : two'
+    }
+
+    It 'still flattens a subtitle that arrives with line breaks' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleTitle -Title 'Title' -Subtitle ("first{0}second" -f [Environment]::NewLine)
+            })
+
+        $lines.Count | Should -Be 5
+        $lines[3] | Should -Be '  first second'
+    }
+
+    It 'draws the rules with TitleChar' {
+        Set-ConsoleStatusStyle -Width 100 -TitleChar '#'
+        $lines = @(Get-RenderedLines -Script { Write-ConsoleTitle -Title 'Title' })
+
+        $lines[1] | Should -Be ('  ' + ('#' * 98))
+    }
+
+    It 'restarts the total running time only when StartTimer is passed' {
+        Start-Sleep -Milliseconds 300
+
+        $null = Get-RenderedLines -Script { Write-ConsoleTitle -Title 'Title' }
+        (Get-ConsoleStatusSummary).ElapsedMs | Should -BeGreaterOrEqual 300
+
+        $null = Get-RenderedLines -Script { Write-ConsoleTitle -Title 'Title' -StartTimer }
+        (Get-ConsoleStatusSummary).ElapsedMs | Should -BeLessThan 300
+    }
+
+    It 'clears the host only when ClearScreen is passed' {
+        Mock -CommandName 'Clear-Host' -ModuleName 'ConsoleStatus' -MockWith { }
+
+        $null = Get-RenderedLines -Script { Write-ConsoleTitle -Title 'Title' }
+        Should -Invoke -CommandName 'Clear-Host' -ModuleName 'ConsoleStatus' -Times 0 -Exactly
+
+        $null = Get-RenderedLines -Script { Write-ConsoleTitle -Title 'Title' -ClearScreen }
+        Should -Invoke -CommandName 'Clear-Host' -ModuleName 'ConsoleStatus' -Times 1 -Exactly
+    }
+}
+
+Describe 'Item lifecycle' {
+    BeforeEach { Reset-TestState }
+
+    It 'writes nothing for a second result on the same item' {
+        # A catch that closes an item already closed on the success path would otherwise emit a
+        # ghost line of dots and a status block.
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Label' -Value 'Value'
+                Write-ConsoleResult -Status OK
+                Write-ConsoleResult -Status FAIL
+            })
+
+        $lines.Count | Should -Be 1
+        $lines[0] | Should -Match ([regex]::Escape('[  OK  ]') + '$')
+    }
+
+    It 'records only the first result' {
+        Write-ConsoleItem -Label 'Label' -Value 'Value' 6>$null
+        Write-ConsoleResult -Status OK 6>$null
+        Write-ConsoleResult -Status FAIL 6>$null
+
+        $summary = Get-ConsoleStatusSummary
+        $summary.Total | Should -Be 1
+        $summary.Fail | Should -Be 0
+    }
+
+    It 'ignores a tick after the item was closed' {
+        # Reachable whenever a helper that ticks can also run outside a step.
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Label' -Value 'Value'
+                Write-ConsoleResult -Status OK
+                Write-ConsoleTick -Count 5
+            })
+
+        $lines.Count | Should -Be 1
+        $lines[0].Length | Should -Be 100
+    }
+
+    It 'ignores a tick before any item was opened' {
+        $lines = @(Get-RenderedLines -Script { Write-ConsoleTick -Count 5 })
+
+        $lines.Count | Should -Be 0
+    }
+
+    It 'reports the open item through Get-ConsoleStatusState' {
+        (Get-ConsoleStatusState).ItemOpen | Should -BeFalse
+
+        Write-ConsoleSection -Title 'My section' 6>$null
+        Write-ConsoleItem -Label 'My label' -Value 'My value' -TotalSteps 10 6>$null
+        Write-ConsoleTick -Count 4 6>$null
+
+        $state = Get-ConsoleStatusState
+        $state.ItemOpen | Should -BeTrue
+        $state.Section | Should -Be 'My section'
+        $state.Label | Should -Be 'My label'
+        $state.Value | Should -Be 'My value'
+        $state.TotalSteps | Should -Be 10
+        $state.DoneSteps | Should -Be 4
+
+        Write-ConsoleResult -Status OK 6>$null
+        (Get-ConsoleStatusState).ItemOpen | Should -BeFalse
+    }
+
+    It 'keeps the runtime state out of Get-ConsoleStatusStyle' {
+        $style = Get-ConsoleStatusStyle
+        $names = @($style.PSObject.Properties.Name)
+
+        $names | Should -Contain 'LineWidth'
+        $names | Should -Contain 'Mode'
+
+        foreach ($runtime in @('ItemOpen', 'Stopwatch', 'RunStopwatch', 'Ticks', 'CurrentLabel', 'Section')) {
+            $names | Should -Not -Contain $runtime
+        }
+    }
+
+    It 'opens a fresh item after a closed one' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'First' -Value 'v'
+                Write-ConsoleResult -Status OK
+                Write-ConsoleItem -Label 'Second' -Value 'v'
+                Write-ConsoleTick -Count 5
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 2
+        $lines[1] | Should -BeLike '*Second*'
+        $lines[1] | Should -Match '\*{5}'
+    }
+}
+
+Describe 'Detail and note appending' {
+    BeforeEach { Reset-TestState }
+
+    It 'keeps the last note when Append is not used' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'first'
+        Set-ConsoleStepNote -Text 'second'
+        Write-ConsoleResult -Status WARN 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'second'
+    }
+
+    It 'keeps both notes when Append is used' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'chain: UntrustedRoot'
+        Set-ConsoleStepNote -Text 'chain: OfflineRevocation' -Append
+        Write-ConsoleResult -Status WARN 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'chain: UntrustedRoot; chain: OfflineRevocation'
+    }
+
+    It 'appends to an empty note without a leading separator' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'only one' -Append
+        Write-ConsoleResult -Status WARN 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'only one'
+    }
+
+    It 'appends nothing for an empty string instead of clearing' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'kept'
+        Set-ConsoleStepNote -Text '' -Append
+        Write-ConsoleResult -Status WARN 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'kept'
+    }
+
+    It 'appends a detail the same way' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepDetail -Text '18 keys'
+        Set-ConsoleStepDetail -Text '2 overridden' -Append
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Detail | Should -Be '18 keys; 2 overridden'
+    }
+
+    It 'still clears a note without Append' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'gone'
+        Set-ConsoleStepNote -Text ''
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be ''
+    }
+}
+
 Describe 'Progress bar limits' {
     BeforeEach { Reset-TestState }
 
@@ -917,6 +1285,34 @@ Describe 'Records and summary' {
 
         $lines = @(Get-RenderedLines -Script { Write-ConsoleSummary })
         ($lines | Where-Object { $_ -match '^\s+> ' }).Count | Should -Be 0
+    }
+
+    It 'counts the wall clock separately from the time spent in the steps' {
+        Write-ConsoleItem -Label 'a' -Value '1' 6>$null
+        Write-ConsoleResult -Status OK 6>$null
+        Start-Sleep -Milliseconds 300
+
+        $summary = Get-ConsoleStatusSummary
+        $summary.DurationMs | Should -BeLessThan 300
+        $summary.ElapsedMs | Should -BeGreaterOrEqual 300
+    }
+
+    It 'restarts the wall clock on reset' {
+        Start-Sleep -Milliseconds 300
+        (Get-ConsoleStatusSummary).ElapsedMs | Should -BeGreaterOrEqual 300
+
+        Reset-ConsoleStatusLog
+        (Get-ConsoleStatusSummary).ElapsedMs | Should -BeLessThan 300
+    }
+
+    It 'writes the total running time under the steps' {
+        Write-ConsoleItem -Label 'a' -Value '1' 6>$null
+        Write-ConsoleResult -Status OK 6>$null
+
+        $lines = @(Get-RenderedLines -Script { Write-ConsoleSummary })
+        $steps = [array]::FindIndex($lines, [Predicate[string]] { $args[0] -like '*Steps completed*' })
+
+        $lines[$steps + 1] | Should -BeLike '*Total time*'
     }
 
     It 'counts every status' {
