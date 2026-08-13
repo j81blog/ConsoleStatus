@@ -130,6 +130,14 @@ Write-ConsoleResult -Status WARN -Detail '3 of 12 invalid' -Note $fullValidation
 
 On a FAIL with no detail, the exception message is used automatically.
 
+`Set-ConsoleStepDetail` and `Set-ConsoleStepNote` replace what was there before, so a step that
+reports several findings keeps only the last. Use `-Append` to keep them all, joined with `'; '`:
+
+```powershell
+Set-ConsoleStepNote -Text 'chain: UntrustedRoot'
+Set-ConsoleStepNote -Text 'chain: OfflineRevocation' -Append
+```
+
 ## Configuration
 
 Set `$ConsoleStatusPreference` before importing, or call `Set-ConsoleStatusStyle` afterwards.
@@ -246,6 +254,7 @@ ConsoleStatus/
 tests/                    Pester suite
 examples/
 ci/                       Install, Tests and Build, called by the workflow
+RELEASENOTES.md           what changed per version
 ```
 
 ## Examples
