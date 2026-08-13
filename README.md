@@ -128,7 +128,20 @@ Write-ConsoleResult -Status WARN -Detail '3 of 12 invalid' -Note $fullValidation
       folder that does not exist
 ```
 
-On a FAIL with no detail, the exception message is used automatically.
+On a FAIL with no detail, the exception message is used automatically. `Invoke-ConsoleStep` hands
+the exception over for you. With the manual API, pass it yourself from the catch block:
+
+```powershell
+try {
+    Write-ConsoleItem -Label 'Import certificate' -Value 'wildcard.pfx'
+    Import-PfxCertificate @params
+    Write-ConsoleResult -Status OK
+} catch {
+    Write-ConsoleResult -Status FAIL -ErrorRecord $_
+}
+```
+
+The message fills the detail, lands on the record as `Error`, and is repeated under the summary.
 
 `Set-ConsoleStepDetail` and `Set-ConsoleStepNote` replace what was there before, so a step that
 reports several findings keeps only the last. Use `-Append` to keep them all, joined with `'; '`:
