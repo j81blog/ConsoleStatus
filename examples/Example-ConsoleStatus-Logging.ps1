@@ -213,6 +213,8 @@ if ($script:LogEnabled) {
 
 Write-Log -Message 'Run started' -Data @{ Script = $MyInvocation.MyCommand.Name }
 
+Write-ConsoleTitle -Title 'Vendor.Product deployment' -Subtitle "$env:COMPUTERNAME, run $script:LogRunId" -StartTimer
+
 Write-ConsoleSection -Title 'Deploy'
 
 Invoke-ConsoleStep -Label 'Read configuration' -Value 'app.config' -TotalSteps 6 -Action {
@@ -252,9 +254,12 @@ try {
 
 Write-ConsoleSummary
 
+$summary = Get-ConsoleStatusSummary
+
 Write-Log -Message 'Run finished' -Level 'Timing' -Data @{
-    Failed     = (Get-ConsoleStatusSummary).Fail
-    DurationMs = (Get-ConsoleStatusSummary).DurationMs
+    Failed     = $summary.Fail
+    DurationMs = $summary.DurationMs
+    ElapsedMs  = $summary.ElapsedMs
 }
 
 Write-Host ''

@@ -47,7 +47,7 @@ function Show-Demo {
             Renders one full demo pass in whatever style is currently configured.
 
         .PARAMETER Caption
-            Text for the banner above the pass.
+            Title for the banner above the pass. The style of the pass is written underneath it.
     #>
     [CmdletBinding()]
     param(
@@ -65,8 +65,7 @@ function Show-Demo {
         $rawWidth = 'n/a'
     }
 
-    Write-Host ''
-    Write-Host ("  === {0}  |  mode: {1}  |  console: {2}  |  line width: {3} ===" -f $Caption, $style.Mode, $rawWidth, $style.LineWidth) -ForegroundColor Magenta
+    Write-ConsoleTitle -Title $Caption -Subtitle ("mode: {0}  |  console: {1}  |  line width: {2}" -f $style.Mode, $rawWidth, $style.LineWidth)
 
     Write-ConsoleSection -Title 'Prerequisites'
 
@@ -140,6 +139,7 @@ $ConsoleStatusPreference = @{
     TickChar    = '#'
     FillChar    = ' '
     RuleChar    = '='
+    TitleChar   = '#'
 }
 
 Set-ConsoleStatusStyle
