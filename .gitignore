@@ -430,3 +430,7 @@ FodyWeavers.xsd
 
 # Pipeline output
 TestResults.xml
+
+#AI
+AGENTS.md
+CLAUDE.md

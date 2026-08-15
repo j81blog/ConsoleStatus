@@ -709,6 +709,17 @@ Describe 'Rendering' {
         $line | Should -Match ([regex]::Escape('boom happened [ FAIL ]') + '$')
     }
 
+    It 'renders a line too narrow for label, value and status instead of throwing' {
+        # Flow mode leaves 2 characters for the text at these settings, which is less than the
+        # three the truncation marker needs.
+        Set-ConsoleStatusStyle -Mode 'Flow' -Width 40 -Indent 20 -StatusWidth 12
+
+        { Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'A label far too long for this line' -Value 'and a value'
+                Write-ConsoleResult -Status OK
+            } } | Should -Not -Throw
+    }
+
     It 'renders the same text with NO_COLOR set' {
         $withColor = Get-RenderedLine -Script {
             Write-ConsoleItem -Label 'Label' -Value 'Value'
@@ -869,6 +880,41 @@ Describe 'Item lifecycle' {
 
         Write-ConsoleResult -Status OK 6>$null
         (Get-ConsoleStatusState).ItemOpen | Should -BeFalse
+    }
+
+    It 'closes an open item and forgets it on reset' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Interrupted' -Value 'v' -TotalSteps 8
+                Write-ConsoleTick -Count 3
+                Reset-ConsoleStatusLog
+            })
+
+        # The half written line is ended rather than left for the next write to continue on.
+        $lines.Count | Should -Be 1
+        $lines[0] | Should -BeLike '*Interrupted*'
+        $lines[0] | Should -Not -BeLike '*]*'
+
+        $state = Get-ConsoleStatusState
+        $state.ItemOpen | Should -BeFalse
+        $state.Label | Should -Be ''
+        $state.TotalSteps | Should -Be 0
+        $state.DoneSteps | Should -Be 0
+
+        Get-ConsoleStatusSummary | Select-Object -ExpandProperty Total | Should -Be 0
+    }
+
+    It 'starts the next item on its own line after a reset' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Interrupted' -Value 'v'
+                Write-ConsoleTick -Count 3
+                Reset-ConsoleStatusLog
+                Write-ConsoleItem -Label 'Fresh' -Value 'v'
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 2
+        $lines[1] | Should -BeLike '*Fresh*'
+        $lines[1].Length | Should -Be 100
     }
 
     It 'keeps the runtime state out of Get-ConsoleStatusStyle' {
