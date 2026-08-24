@@ -1,5 +1,19 @@
 # Release notes
 
+## v2026.824.1230
+
+- ADD: `Add-ConsoleStepNote`, which puts a note on a marked line of its own instead of gluing it onto the note already there. The record still keeps one `Note` field, with the lines joined by `'; '`.
+- ADD: tests for the added note lines, 131 to 138.
+- ADD: the new function in the tour example and in the logging example, where several note lines still land on one record.
+- CHANGE: `Set-ConsoleStepNote -Append` now joins onto the last note line rather than onto the whole note. Identical unless `Add-ConsoleStepNote` was used first.
+
+## v2026.815.1345
+
+- ADD: tests for the item lifecycle across a reset and for a line too narrow to render, 128 to 131.
+- FIX: a line with no room for the label, the value and the status threw instead of rendering. Truncation clamps now, in Flow mode and in the fixed width columns.
+- CHANGE: `Reset-ConsoleStatusLog` clears the current item as well, so `Get-ConsoleStatusState` cannot report a label from the previous pass. An item that was still open has its line closed first, and nothing is recorded for it.
+- CHANGE: internal simplification of the glyph precedence, the console width detection, the summary totals, the note collection and the setting validation. No behavior change.
+
 ## v2026.812.2330
 
 - ADD: `Write-ConsoleTitle`, an opening banner between two rules, with `-Subtitle`, `-ClearScreen` and `-StartTimer`.

@@ -709,6 +709,17 @@ Describe 'Rendering' {
         $line | Should -Match ([regex]::Escape('boom happened [ FAIL ]') + '$')
     }
 
+    It 'renders a line too narrow for label, value and status instead of throwing' {
+        # Flow mode leaves 2 characters for the text at these settings, which is less than the
+        # three the truncation marker needs.
+        Set-ConsoleStatusStyle -Mode 'Flow' -Width 40 -Indent 20 -StatusWidth 12
+
+        { Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'A label far too long for this line' -Value 'and a value'
+                Write-ConsoleResult -Status OK
+            } } | Should -Not -Throw
+    }
+
     It 'renders the same text with NO_COLOR set' {
         $withColor = Get-RenderedLine -Script {
             Write-ConsoleItem -Label 'Label' -Value 'Value'
@@ -871,6 +882,41 @@ Describe 'Item lifecycle' {
         (Get-ConsoleStatusState).ItemOpen | Should -BeFalse
     }
 
+    It 'closes an open item and forgets it on reset' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Interrupted' -Value 'v' -TotalSteps 8
+                Write-ConsoleTick -Count 3
+                Reset-ConsoleStatusLog
+            })
+
+        # The half written line is ended rather than left for the next write to continue on.
+        $lines.Count | Should -Be 1
+        $lines[0] | Should -BeLike '*Interrupted*'
+        $lines[0] | Should -Not -BeLike '*]*'
+
+        $state = Get-ConsoleStatusState
+        $state.ItemOpen | Should -BeFalse
+        $state.Label | Should -Be ''
+        $state.TotalSteps | Should -Be 0
+        $state.DoneSteps | Should -Be 0
+
+        Get-ConsoleStatusSummary | Select-Object -ExpandProperty Total | Should -Be 0
+    }
+
+    It 'starts the next item on its own line after a reset' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Interrupted' -Value 'v'
+                Write-ConsoleTick -Count 3
+                Reset-ConsoleStatusLog
+                Write-ConsoleItem -Label 'Fresh' -Value 'v'
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 2
+        $lines[1] | Should -BeLike '*Fresh*'
+        $lines[1].Length | Should -Be 100
+    }
+
     It 'keeps the runtime state out of Get-ConsoleStatusStyle' {
         $style = Get-ConsoleStatusStyle
         $names = @($style.PSObject.Properties.Name)
@@ -952,6 +998,46 @@ Describe 'Detail and note appending' {
         Write-ConsoleResult -Status OK 6>$null
 
         @(Get-ConsoleStatusLog)[0].Note | Should -Be ''
+    }
+
+    It 'joins every added note into the one record field' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'queue drained'
+        Add-ConsoleStepNote -Text 'another line'
+        Add-ConsoleStepNote -Text 'and another'
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'queue drained; another line; and another'
+    }
+
+    It 'starts the note when nothing was set first' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Add-ConsoleStepNote -Text 'only one'
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'only one'
+    }
+
+    It 'adds nothing for an empty string' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Add-ConsoleStepNote -Text 'kept'
+        Add-ConsoleStepNote -Text ''
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'kept'
+    }
+
+    It 'appends to the last added line instead of starting another' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Label' -Value 'v'
+                Add-ConsoleStepNote -Text 'first'
+                Add-ConsoleStepNote -Text 'second'
+                Set-ConsoleStepNote -Text 'also second' -Append
+                Write-ConsoleResult -Status OK
+            })
+
+        ($lines | Where-Object { $_ -match '^\s+> ' }).Count | Should -Be 2
+        $lines[-1] | Should -Match '^ {4}> second; also second$'
     }
 }
 
@@ -1246,6 +1332,42 @@ Describe 'Explicit notes' {
         Write-ConsoleResult -Status OK -Note 'C:\some\long\path.txt' 6>$null
 
         @(Get-ConsoleStatusLog)[0].Note | Should -Be 'C:\some\long\path.txt'
+    }
+
+    It 'writes every added note as a marked line of its own' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Label' -Value 'Value'
+                Set-ConsoleStepNote -Text 'queue drained'
+                Add-ConsoleStepNote -Text 'another line'
+                Add-ConsoleStepNote -Text 'and another'
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 4
+        $lines[1] | Should -Match '^ {4}> queue drained$'
+        $lines[2] | Should -Match '^ {4}> another line$'
+        $lines[3] | Should -Match '^ {4}> and another$'
+    }
+
+    It 'lets an explicit Note override the added lines' {
+        Write-ConsoleItem -Label 'Label' -Value 'Value' 6>$null
+        Add-ConsoleStepNote -Text 'dropped'
+        Write-ConsoleResult -Status OK -Note 'wins' 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'wins'
+    }
+
+    It 'does not carry an added note over to the next item' {
+        Write-ConsoleItem -Label 'First' -Value 'Value' 6>$null
+        Add-ConsoleStepNote -Text 'only here'
+        Write-ConsoleResult -Status OK 6>$null
+
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Second' -Value 'Value'
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 1
     }
 
     It 'does not carry a note over to the next item' {

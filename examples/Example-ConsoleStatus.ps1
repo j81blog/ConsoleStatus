@@ -22,11 +22,12 @@
           11. A pinned line width.
           12. ContinueOnError instead of try/catch.
           13. Ticks from a pipeline, TotalSteps for a proportional bar, a step returning nothing.
-          14. Independent totals with Reset-ConsoleStatusLog.
-          15. Interrogating the run afterwards: the style, the failures, the records.
-          16. What happens when the bar runs out, and when a detail does not fit.
-          17. A slow step with a real duration, and details that arrive with line breaks.
-          18. -Note for text the script wants on its own line, whatever the column did.
+          14. Truncation in the value column, and -Note for the text that has to survive it.
+          15. What happens when the bar runs out, and when a detail does not fit.
+          16. A slow step with a real duration, and details that arrive with line breaks.
+          17. Add-ConsoleStepNote for a list of findings, one marked line each.
+          18. Independent totals with Reset-ConsoleStatusLog.
+          19. Interrogating the run afterwards: the style, the failures, the records.
 
     .PARAMETER SkipTour
         Run only part 1.
@@ -209,7 +210,7 @@ Get-ConsoleStatusLog |
 
 if (-not $SkipTour) {
 
-    # 14. Reset gives the tour its own totals, as if it were a separate run.
+    # Reset gives the tour its own totals (18), as if it were a separate run.
     Reset-ConsoleStatusLog
 
     # 7. Restyling halfway through. Flow lets long values run at their natural length instead of
@@ -262,7 +263,7 @@ if (-not $SkipTour) {
     Write-ConsoleResult -Status OK -Detail "line=$((Get-ConsoleStatusStyle).LineWidth)"
 
     Set-ConsoleStatusStyle @styleParams
-    Write-ConsoleSection -Title '12. Failure handling and odd shapes'
+    Write-ConsoleSection -Title '12. Failure handling with ContinueOnError'
 
     # 12. ContinueOnError swallows the exception. The FAIL is still counted, logged and shown, so
     #     this is the shorter form when the script does not need to branch on the failure.
@@ -270,6 +271,8 @@ if (-not $SkipTour) {
         Write-ConsoleTick -Count 5
         throw 'Access to the path is denied.'
     }
+
+    Write-ConsoleSection -Title '13. Ticks from a pipeline, and a proportional bar'
 
     # 13. Ticks can come straight out of a pipeline, and a step that returns nothing is fine.
     #     TotalSteps makes a tick one unit of work instead of one character, so the bar spans the
@@ -283,8 +286,10 @@ if (-not $SkipTour) {
         Set-ConsoleStepDetail -Text 'queue drained'
     }
 
-    # A value too long for the column. Truncation is the default, and the script decides whether
-    # that is acceptable or whether the full text is worth a note of its own.
+    Write-ConsoleSection -Title '14. Truncated values, and -Note for the full text'
+
+    # 14. A value too long for the column. Truncation is the default, and the script decides
+    #     whether that is acceptable or whether the full text is worth a note of its own.
     $deepPath = 'C:\Program Files\Vendor\Product\Very\Deep\Path\config.xml'
 
     Write-ConsoleItem -Label 'Truncated, and fine' -Value $deepPath
@@ -293,7 +298,7 @@ if (-not $SkipTour) {
     Write-ConsoleItem -Label 'Truncated, needs the rest' -Value $deepPath
     Write-ConsoleResult -Status WARN -Note $deepPath
 
-    Write-ConsoleSection -Title '16. When the bar runs out and when the detail does not fit'
+    Write-ConsoleSection -Title '15. When the bar runs out and when the detail does not fit'
 
     # Without a declared total the bar wraps, but only as far as MaxBarLines. On the last allowed
     # line the final cell becomes the more marker, so a bar that stopped being drawn is
@@ -309,7 +314,7 @@ if (-not $SkipTour) {
     Write-ConsoleTick -Count 10
     Write-ConsoleResult -Status FAIL -Detail 'The installer returned exit code 1603. A fatal error occurred during installation and the transaction was rolled back. See the MSI log for the full transcript.'
 
-    Write-ConsoleSection -Title '17. A slow step, and details that arrive with line breaks'
+    Write-ConsoleSection -Title '16. A slow step, and details that arrive with line breaks'
 
     # Slow enough to produce a real duration instead of a few milliseconds. The switch asks for the
     # timing on this step alone, which keeps it off the rows where it would be noise. Anything past
@@ -342,10 +347,39 @@ if (-not $SkipTour) {
         throw ("The certificate could not be imported.{0}The specified network password is not correct.{0}Verify the PFX password and try again." -f [Environment]::NewLine)
     }
 
-    Write-ConsoleSummary -Title '14. Tour totals, counted separately'
+    Write-ConsoleSection -Title '17. Several findings, each on a line of its own'
 
-    # 15. Everything is queryable after the fact.
-    Write-ConsoleSection -Title '15. Interrogating the run'
+    # Set-ConsoleStepNote -Append glues everything into one wrapped paragraph, which is right for
+    # two fragments of the same sentence and wrong for a list. Add-ConsoleStepNote gives every call
+    # a marked line of its own. The record keeps one Note field either way, joined with '; '.
+    Write-ConsoleItem -Label 'Check certificate' -Value 'wildcard.pfx'
+    Write-ConsoleTick -Count 8
+    Set-ConsoleStepNote -Text 'chain: UntrustedRoot'
+    Add-ConsoleStepNote -Text 'chain: OfflineRevocation'
+    Add-ConsoleStepNote -Text 'expires in 9 days'
+    Write-ConsoleResult -Status WARN
+
+    # The shape it is really for: the findings turn up inside the loop, so the script cannot build
+    # the text up front, and only some of the work produces one. A line too long for the width is
+    # still wrapped under its own marker.
+    $archive = 2014..2025 | ForEach-Object { "reports\$_" }
+
+    Write-ConsoleItem -Label 'Scan archive' -Value "$(@($archive).Count) folders" -TotalSteps @($archive).Count
+
+    foreach ($folder in $archive) {
+        Write-ConsoleTick
+
+        if ($folder -match '201[5-7]$') {
+            Add-ConsoleStepNote -Text "stale: $folder"
+        }
+    }
+
+    Write-ConsoleResult -Status WARN
+
+    Write-ConsoleSummary -Title '18. Tour totals, counted separately'
+
+    # 19. Everything is queryable after the fact.
+    Write-ConsoleSection -Title '19. Interrogating the run'
 
     $style = Get-ConsoleStatusStyle
     Write-Host ("  line width {0}, label {1}, value {2}, status {3}, mode {4}" -f $style.LineWidth, $style.LabelWidth, $style.ValueWidth, $style.StatusWidth, $style.Mode) -ForegroundColor DarkGray

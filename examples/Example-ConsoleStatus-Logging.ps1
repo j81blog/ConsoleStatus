@@ -235,6 +235,22 @@ Write-ConsoleItem -Label 'Check signature' -Value 'Vendor.Product.msi'
 Write-ConsoleTick -Count 8
 Write-ConsoleResult -Status WARN -Note 'Signed by an untrusted publisher, continuing because -Force was given'
 
+# Several note lines on the console, still one Note field on the record, joined with '; ', so the
+# log keeps one object per item instead of one per finding.
+$archive = 2014..2025 | ForEach-Object { "reports\$_" }
+
+Write-ConsoleItem -Label 'Scan archive' -Value "$(@($archive).Count) folders" -TotalSteps @($archive).Count
+
+foreach ($folder in $archive) {
+    Write-ConsoleTick
+
+    if ($folder -match '201[5-7]$') {
+        Add-ConsoleStepNote -Text "stale: $folder"
+    }
+}
+
+Write-ConsoleResult -Status WARN
+
 $null = Invoke-ConsoleStep -Label 'Import certificate' -Value 'wildcard.pfx' -ContinueOnError -Action {
     Write-ConsoleTick -Count 4
     throw 'The specified network password is not correct.'
