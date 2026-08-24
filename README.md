@@ -151,6 +151,21 @@ Set-ConsoleStepNote -Text 'chain: UntrustedRoot'
 Set-ConsoleStepNote -Text 'chain: OfflineRevocation' -Append
 ```
 
+`Add-ConsoleStepNote` keeps them all as well, but gives every call its own marked line underneath
+instead of joining them into one paragraph:
+
+```powershell
+Add-ConsoleStepNote -Text 'chain: UntrustedRoot'
+Add-ConsoleStepNote -Text 'chain: OfflineRevocation'
+```
+
+```
+    > chain: UntrustedRoot
+    > chain: OfflineRevocation
+```
+
+Either way the record keeps a single `Note` field, with the lines joined by `'; '`.
+
 ## Configuration
 
 Set `$ConsoleStatusPreference` before importing, or call `Set-ConsoleStatusStyle` afterwards.
@@ -247,6 +262,7 @@ down a deployment.
 | `Write-ConsoleTick` | Advance the progress bar |
 | `Set-ConsoleStepDetail` | Detail for the current item, from inside the work |
 | `Set-ConsoleStepNote` | Note for the current item, from inside the work |
+| `Add-ConsoleStepNote` | Another note line, under the ones already there |
 | `Write-ConsoleResult` | Close the line with a status, and record it |
 | `Invoke-ConsoleStep` | Run a scriptblock as one item, passing its output through |
 | `Write-ConsoleSummary` | Closing totals, with the failures listed |
@@ -285,7 +301,7 @@ RELEASENOTES.md           what changed per version
 .\ci\Tests.ps1
 ```
 
-Runs 128 Pester tests and writes `TestResults.xml`. The suite covers width resolution, setting
+Runs 138 Pester tests and writes `TestResults.xml`. The suite covers width resolution, setting
 precedence and validation, the column arithmetic, the title banner, the item lifecycle, bar
 wrapping and limits, details and notes, duration and run timing, the records and summary, the
 module layout, comment based help, and that nothing reaches the success stream.
