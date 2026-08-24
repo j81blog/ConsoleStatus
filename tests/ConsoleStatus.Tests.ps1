@@ -999,6 +999,46 @@ Describe 'Detail and note appending' {
 
         @(Get-ConsoleStatusLog)[0].Note | Should -Be ''
     }
+
+    It 'joins every added note into the one record field' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Set-ConsoleStepNote -Text 'queue drained'
+        Add-ConsoleStepNote -Text 'another line'
+        Add-ConsoleStepNote -Text 'and another'
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'queue drained; another line; and another'
+    }
+
+    It 'starts the note when nothing was set first' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Add-ConsoleStepNote -Text 'only one'
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'only one'
+    }
+
+    It 'adds nothing for an empty string' {
+        Write-ConsoleItem -Label 'Label' -Value 'v' 6>$null
+        Add-ConsoleStepNote -Text 'kept'
+        Add-ConsoleStepNote -Text ''
+        Write-ConsoleResult -Status OK 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'kept'
+    }
+
+    It 'appends to the last added line instead of starting another' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Label' -Value 'v'
+                Add-ConsoleStepNote -Text 'first'
+                Add-ConsoleStepNote -Text 'second'
+                Set-ConsoleStepNote -Text 'also second' -Append
+                Write-ConsoleResult -Status OK
+            })
+
+        ($lines | Where-Object { $_ -match '^\s+> ' }).Count | Should -Be 2
+        $lines[-1] | Should -Match '^ {4}> second; also second$'
+    }
 }
 
 Describe 'Progress bar limits' {
@@ -1292,6 +1332,42 @@ Describe 'Explicit notes' {
         Write-ConsoleResult -Status OK -Note 'C:\some\long\path.txt' 6>$null
 
         @(Get-ConsoleStatusLog)[0].Note | Should -Be 'C:\some\long\path.txt'
+    }
+
+    It 'writes every added note as a marked line of its own' {
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Label' -Value 'Value'
+                Set-ConsoleStepNote -Text 'queue drained'
+                Add-ConsoleStepNote -Text 'another line'
+                Add-ConsoleStepNote -Text 'and another'
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 4
+        $lines[1] | Should -Match '^ {4}> queue drained$'
+        $lines[2] | Should -Match '^ {4}> another line$'
+        $lines[3] | Should -Match '^ {4}> and another$'
+    }
+
+    It 'lets an explicit Note override the added lines' {
+        Write-ConsoleItem -Label 'Label' -Value 'Value' 6>$null
+        Add-ConsoleStepNote -Text 'dropped'
+        Write-ConsoleResult -Status OK -Note 'wins' 6>$null
+
+        @(Get-ConsoleStatusLog)[0].Note | Should -Be 'wins'
+    }
+
+    It 'does not carry an added note over to the next item' {
+        Write-ConsoleItem -Label 'First' -Value 'Value' 6>$null
+        Add-ConsoleStepNote -Text 'only here'
+        Write-ConsoleResult -Status OK 6>$null
+
+        $lines = @(Get-RenderedLines -Script {
+                Write-ConsoleItem -Label 'Second' -Value 'Value'
+                Write-ConsoleResult -Status OK
+            })
+
+        $lines.Count | Should -Be 1
     }
 
     It 'does not carry a note over to the next item' {

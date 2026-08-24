@@ -1,5 +1,12 @@
 # Release notes
 
+## v2026.824.1230
+
+- ADD: `Add-ConsoleStepNote`, which puts a note on a marked line of its own instead of gluing it onto the note already there. The record still keeps one `Note` field, with the lines joined by `'; '`.
+- ADD: tests for the added note lines, 131 to 138.
+- ADD: the new function in the tour example and in the logging example, where several note lines still land on one record.
+- CHANGE: `Set-ConsoleStepNote -Append` now joins onto the last note line rather than onto the whole note. Identical unless `Add-ConsoleStepNote` was used first.
+
 ## v2026.815.1345
 
 - ADD: tests for the item lifecycle across a reset and for a line too narrow to render, 128 to 131.
